@@ -1,8 +1,9 @@
-import os
 import gc
 import torch
 import faiss
 import warnings
+from pathlib import Path # instead of os for path manipulation
+
 import numpy as np
 from tqdm import tqdm
 import PIL
@@ -247,8 +248,7 @@ class ImageSimilaritySearch:
             image_dir (str): Directory containing images
             batch_size (int): Number of images to process at once
         """
-        
-        image_paths = [os.path.join(image_dir, i) for i in os.listdir(image_dir)]
+        image_paths = [str(p) for p in Path(image_dir).glob('*') if p.is_file()]
 
         if not image_paths:
             print(f"No images found in {image_dir}")

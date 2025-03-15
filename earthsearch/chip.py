@@ -1,6 +1,6 @@
-import os
 import cv2
-import glob
+from pathlib import Path
+
 import shutil
 import numpy as np
 from numba import jit
@@ -119,7 +119,7 @@ def chip_image(
     Return:
         None
     """
-    image_id = os.path.basename(image_path).split(".")[0]
+    image_id = Path(image_path).stem
     image = gdal.Open(image_path)
     geotransform = image.GetGeoTransform()
     width = int(image.RasterXSize)
@@ -144,7 +144,7 @@ def chip_image(
         # chip_path = os.path.join(chip_dir, f"{image_id}_{i}_{j}_{window_size}_{cent_long}_{cent_lat}.png")
         # tifffile.imwrite(chip_path, arr) # may need planarcongif="CONTIG"
         
-        chip_path = os.path.join(chip_dir, f"{image_id}_{i}_{j}_{window_size}_{cent_long}_{cent_lat}.png")
+        chip_path = Path(chip_dir) / f"{image_id}_{i}_{j}_{window_size}_{cent_long}_{cent_lat}.png"
         rgb_array = cv2.cvtColor(np.transpose(array, (1, 2, 0)), cv2.COLOR_RGB2BGR) # need to transpose array then rearrange channels
         cv2.imwrite(chip_path, rgb_array)
     
@@ -172,50 +172,54 @@ def chip(
     Return:
         None
     """
-    if os.path.exists(chip_dir):
+    assert stride < 1.0, "Stride must be less than 1.0"
+    assert window_size > 0, "Window size must be greater than 0"
+    assert Path(image_dir).exists(), "Image directory does not exist"
+    if Path(chip_dir).exists():
         print(f"Chip directory exists, removing it...")
-        shutil.rmtree(chip_dir)
-        os.makedirs(chip_dir, exist_ok=True)
+        shutil.rmtree(chip_dir) # risky lol 
+        Path.mkdir(Path(chip_dir), parents=True) # use pathlib. recreate directory
     else:
-        os.makedirs(chip_dir, exist_ok=True)
+        Path.mkdir(Path(chip_dir), parents=True)
 
     if not valid_exts:
-        valid_exts = ["tif", "nitf", "ntf", "png", "jpg", "jpeg"]
+        valid_exts = ["tif", "tiff", "nitf", "ntf", "png", "jpg", "jpeg"] # added common 'tiff' extension
         valid_exts += [ext.upper() for ext in valid_exts]
 
-    image_paths = [os.path.join(image_dir, i) for i in os.listdir(image_dir) if os.path.basename(i).split(".")[1] in valid_exts]
+    image_paths = [p for p in Path(image_dir).iterdir() if p.suffix[1:] in valid_exts]
     
     if multiprocess:
         with tqdm(total=len(image_paths), desc="Chipping images", unit="image") as progress_bar:
             with ProcessPoolExecutor(max_workers=None) as executor:
-                        futures = {
-                            executor.submit(
-                                chip_image,
-                                image_path,
-                                chip_dir,
-                                window_size,
-                                stride
-                            ): image_path
-                            for image_path in image_paths
-                        }
-                        for _ in as_completed(futures):
-                            progress_bar.update(1)
+                futures = {
+                    executor.submit(
+                        chip_image,
+                        image_path,
+                        chip_dir,
+                        window_size,
+                        stride
+                    ): image_path
+                    for image_path in image_paths
+                }
+                for _ in as_completed(futures):
+                    progress_bar.update(1)
     else: # multithread
         with tqdm(total=len(image_paths), desc="Chipping images", unit="image") as progress_bar:
             with ThreadPoolExecutor(max_workers=None) as executor:
-                        futures = {
-                            executor.submit(
-                                chip_image,
-                                image_path,
-                                chip_dir,
-                                window_size,
-                                stride
-                            ): image_path
-                            for image_path in image_paths
-                        }
-                        for _ in as_completed(futures):
-                            progress_bar.update(1)
-
+                futures = {
+                    executor.submit(
+                        chip_image,
+                        image_path,
+                        chip_dir,
+                        window_size,
+                        stride
+                    ): image_path
+                    for image_path in image_paths
+                }
+                for _ in as_completed(futures):
+                    progress_bar.update(1)
+    chip_count = len(list(Path(chip_dir).iterdir()))
+    print(f"Chipped {chip_count} images to {chip_dir}")
     return None
 
 if __name__ == "__main__":
